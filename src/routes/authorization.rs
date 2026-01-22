@@ -11,6 +11,7 @@ use crate::errors::response::AgentError;
 use crate::schemas::authorization::{AuthorizationAnswer, AuthorizationCall, AuthorizationRequest};
 use crate::services::data::DataStore;
 use crate::services::policies::PolicyStore;
+use crate::services::stats::StatsStore;
 
 #[openapi]
 #[post("/is_authorized", format = "json", data = "<authorization_call>")]
@@ -18,9 +19,13 @@ pub async fn is_authorized(
     _auth: ApiKey,
     policy_store: &State<Box<dyn PolicyStore>>,
     data_store: &State<Box<dyn DataStore>>,
+    stats_store: &State<Box<dyn StatsStore>>,
     authorizer: &State<Authorizer>,
     authorization_call: Json<AuthorizationCall>,
 ) -> Result<Json<AuthorizationAnswer>, AgentError> {
+    // Increment total authorization request counter
+    stats_store.increment_auth_request().await;
+    
     // Print the payload to the console
     debug!("Received authorization request: {:?}", authorization_call);
 
@@ -51,5 +56,16 @@ pub async fn is_authorized(
     info!("Querying cedar using {:?}", &request);
     let answer = authorizer.is_authorized(&request, &policies, &entities);
     debug!("Authorization answer: {:?}", answer);
+    
+    // Track allow/deny decision
+    match answer.decision() {
+        cedar_policy::Decision::Allow => {
+            stats_store.increment_allow().await;
+        }
+        cedar_policy::Decision::Deny => {
+            stats_store.increment_deny().await;
+        }
+    }
+    
     Ok(Json::from(AuthorizationAnswer::from(answer)))
 }

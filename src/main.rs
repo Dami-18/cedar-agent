@@ -17,6 +17,8 @@ use crate::services::policies::memory::MemoryPolicyStore;
 use crate::services::policies::PolicyStore;
 use crate::services::schema::memory::MemorySchemaStore;
 use crate::services::schema::SchemaStore;
+use crate::services::stats::memory::MemoryStatsStore;
+use crate::services::stats::StatsStore;
 
 mod authn;
 mod common;
@@ -70,6 +72,7 @@ async fn main() -> ExitCode {
         .manage(Box::new(MemoryPolicyStore::new()) as Box<dyn PolicyStore>)
         .manage(Box::new(MemoryDataStore::new()) as Box<dyn DataStore>)
         .manage(Box::new(MemorySchemaStore::new()) as Box<dyn SchemaStore>)
+        .manage(Box::new(MemoryStatsStore::new()) as Box<dyn StatsStore>)
         .manage(cedar_policy::Authorizer::new())
         .register(
             "/",
@@ -109,6 +112,8 @@ async fn main() -> ExitCode {
                 routes::schema::delete_table_attribute,
                 routes::schema::add_generic_attribute,
                 routes::schema::delete_generic_attribute,
+                routes::stats::get_stats,
+                routes::stats::reset_stats,
             ],
         )
         .mount(
