@@ -22,6 +22,8 @@ log4rs = "1.2.0"
 rocket = { version = "0.5.0", features = ["json"] }
 rocket_cors = "0.6.0"
 rocket_okapi = { version = "0.8.0", features = ["swagger", "rapidoc"] }
+schemars = "0.8.21"
 serde = "1.0.160"
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-native-tls", "postgres", "mysql"] }
 thiserror = "1.0.40"
-tokio = "1.28.0"
+tokio = { version = "1.28.0", features = ["rt-multi-thread", "macros", "time"] }

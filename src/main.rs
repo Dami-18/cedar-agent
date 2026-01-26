@@ -13,12 +13,15 @@ use rocket_okapi::{openapi_get_routes, rapidoc::*, swagger_ui::*};
 
 use crate::services::data::memory::MemoryDataStore;
 use crate::services::data::DataStore;
+use crate::services::invalidation::InvalidationService;
+use crate::services::invalidation::InvalidationTargetsStore;
 use crate::services::policies::memory::MemoryPolicyStore;
 use crate::services::policies::PolicyStore;
 use crate::services::schema::memory::MemorySchemaStore;
 use crate::services::schema::SchemaStore;
 use crate::services::stats::memory::MemoryStatsStore;
 use crate::services::stats::StatsStore;
+use std::time::Duration;
 
 mod authn;
 mod common;
@@ -28,6 +31,7 @@ mod logger;
 mod routes;
 mod schemas;
 mod services;
+mod write_origin;
 
 #[rocket::main]
 async fn main() -> ExitCode {
@@ -69,10 +73,18 @@ async fn main() -> ExitCode {
         .attach(services::data::load_from_file::InitDataFairing)
         .attach(services::policies::load_from_file::InitPoliciesFairing)
         .manage(config)
+        .manage(tokio::sync::Mutex::new(()))
         .manage(Box::new(MemoryPolicyStore::new()) as Box<dyn PolicyStore>)
         .manage(Box::new(MemoryDataStore::new()) as Box<dyn DataStore>)
         .manage(Box::new(MemorySchemaStore::new()) as Box<dyn SchemaStore>)
         .manage(Box::new(MemoryStatsStore::new()) as Box<dyn StatsStore>)
+        .manage(InvalidationTargetsStore::new_from_env())
+        .manage(InvalidationService::new(Duration::from_millis(
+            std::env::var("CEDAR_AGENT_INVALIDATION_TIMEOUT_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(5000),
+        )))
         .manage(cedar_policy::Authorizer::new())
         .register(
             "/",
@@ -114,6 +126,8 @@ async fn main() -> ExitCode {
                 routes::schema::delete_generic_attribute,
                 routes::stats::get_stats,
                 routes::stats::reset_stats,
+                routes::invalidation::get_invalidation_targets,
+                routes::invalidation::put_invalidation_targets,
             ],
         )
         .mount(

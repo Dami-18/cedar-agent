@@ -42,6 +42,18 @@ Error response format:
 
 ## API Endpoints
 
+### Invalidation Management
+
+These endpoints manage which database targets cedar-agent will invalidate (flush authorization caches) on policy/schema/data mutations.
+
+- `GET /invalidation/targets`: list targets
+- `PUT /invalidation/targets`: replace the full target list
+
+DB-origin entity sync (used by database extensions) should send:
+- `X-Cedar-Write-Origin: db-entity-sync`
+
+When this header is present on entity sync requests, cedar-agent skips invalidation to avoid double-flushing and added DDL latency.
+
 ### Health Check
 
 #### GET /

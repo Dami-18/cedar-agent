@@ -11,9 +11,12 @@ use std::str::FromStr;
 use crate::authn::ApiKey;
 use crate::errors::response::AgentError;
 use crate::schemas::data as schemas;
+use crate::services::invalidation::InvalidationService;
+use crate::services::invalidation::InvalidationTargetsStore;
 use crate::services::data::DataStore;
 use crate::services::schema::SchemaStore;
-use log::{debug, info, warn};
+use crate::write_origin::WriteOrigin;
+use log::{info, warn};
 
 #[openapi]
 #[get("/data")]
@@ -32,7 +35,13 @@ pub async fn update_entities(
     data_store: &State<Box<dyn DataStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entities: Json<schemas::Entities>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Entities>, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_entities = data_store.get_entities().await;
+
     let schema = schema_store.get_cedar_schema().await;
     info!("Updating entities in bulk");
 
@@ -56,12 +65,38 @@ pub async fn update_entities(
         }
     }
 
-    match data_store.update_entities(incoming, schema).await {
-        Ok(entities) => Ok(Json::from(entities)),
-        Err(err) => Err(AgentError::BadRequest {
-            reason: err.to_string(),
-        }),
+    let updated = match data_store.update_entities(incoming, schema).await {
+        Ok(entities) => entities,
+        Err(err) => {
+            return Err(AgentError::BadRequest {
+                reason: err.to_string(),
+            })
+        }
+    };
+
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        let rollback_schema = schema_store.get_cedar_schema().await;
+        let rollback_res = data_store
+            .update_entities(prev_entities, rollback_schema)
+            .await
+            .map_err(|e| e.to_string());
+
+        return Err(AgentError::BadRequest {
+            reason: match rollback_res {
+                Ok(_) => format!(
+                    "Authorization cache invalidation failed (data change rolled back): {}",
+                    err
+                ),
+                Err(rerr) => format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            },
+        });
     }
+
+    Ok(Json::from(updated))
 }
 
 #[openapi]
@@ -69,9 +104,38 @@ pub async fn update_entities(
 pub async fn delete_entities(
     _auth: ApiKey,
     data_store: &State<Box<dyn DataStore>>,
+    schema_store: &State<Box<dyn SchemaStore>>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<status::NoContent, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_entities = data_store.get_entities().await;
+
     info!("Deleting all entities");
     data_store.delete_entities().await;
+
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        let rollback_schema = schema_store.get_cedar_schema().await;
+        let rollback_res = data_store
+            .update_entities(prev_entities, rollback_schema)
+            .await
+            .map_err(|e| e.to_string());
+
+        return Err(AgentError::BadRequest {
+            reason: match rollback_res {
+                Ok(_) => format!(
+                    "Authorization cache invalidation failed (data change rolled back): {}",
+                    err
+                ),
+                Err(rerr) => format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            },
+        });
+    }
     Ok(status::NoContent)
 }
 
@@ -82,7 +146,13 @@ pub async fn add_new_entity(
     data_store: &State<Box<dyn DataStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entity: Json<schemas::NewEntity>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Entities>, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_entities = data_store.get_entities().await;
+
     let schema = schema_store.get_cedar_schema().await;
     let full_type = if entity.namespace.is_empty() {
         entity.entity_type.clone()
@@ -121,12 +191,38 @@ pub async fn add_new_entity(
     }
 
     // add new entity to existing entities atomically
-    match data_store.add_entities(new_entity.into_iter().collect(), schema).await {
-        Ok(entities) => Ok(Json::from(entities)),
-        Err(err) => Err(AgentError::BadRequest {
-            reason: err.to_string(),
-        }),
+    let updated = match data_store.add_entities(new_entity.into_iter().collect(), schema).await {
+        Ok(entities) => entities,
+        Err(err) => {
+            return Err(AgentError::BadRequest {
+                reason: err.to_string(),
+            })
+        }
+    };
+
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        let rollback_schema = schema_store.get_cedar_schema().await;
+        let rollback_res = data_store
+            .update_entities(prev_entities, rollback_schema)
+            .await
+            .map_err(|e| e.to_string());
+
+        return Err(AgentError::BadRequest {
+            reason: match rollback_res {
+                Ok(_) => format!(
+                    "Authorization cache invalidation failed (data change rolled back): {}",
+                    err
+                ),
+                Err(rerr) => format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            },
+        });
     }
+
+    Ok(Json::from(updated))
 }
 
 #[openapi]
@@ -136,7 +232,13 @@ pub async fn update_entity_attribute(
     data_store: &State<Box<dyn DataStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entity_attribute: Json<schemas::EntityAttributeWithValue>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Entity>, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_entities = data_store.get_entities().await;
+
     let full_type = if entity_attribute.namespace.is_empty() {
         entity_attribute.entity_type.clone()
     } else {
@@ -224,6 +326,28 @@ pub async fn update_entity_attribute(
             reason: err.to_string(),
         })?;
 
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        let rollback_schema = schema_store.get_cedar_schema().await;
+        let rollback_res = data_store
+            .update_entities(prev_entities, rollback_schema)
+            .await
+            .map_err(|e| e.to_string());
+
+        return Err(AgentError::BadRequest {
+            reason: match rollback_res {
+                Ok(_) => format!(
+                    "Authorization cache invalidation failed (data change rolled back): {}",
+                    err
+                ),
+                Err(rerr) => format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            },
+        });
+    }
+
     Ok(Json::from(entity.clone()))
 }
 
@@ -234,7 +358,13 @@ pub async fn delete_entity_attribute(
     data_store: &State<Box<dyn DataStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entity_attribute: Json<schemas::EntityAttribute>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Entity>, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_entities = data_store.get_entities().await;
+
     let full_type = if entity_attribute.namespace.is_empty() {
         entity_attribute.entity_type.clone()
     } else {
@@ -312,6 +442,28 @@ pub async fn delete_entity_attribute(
             reason: err.to_string(),
         })?;
 
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        let rollback_schema = schema_store.get_cedar_schema().await;
+        let rollback_res = data_store
+            .update_entities(prev_entities, rollback_schema)
+            .await
+            .map_err(|e| e.to_string());
+
+        return Err(AgentError::BadRequest {
+            reason: match rollback_res {
+                Ok(_) => format!(
+                    "Authorization cache invalidation failed (data change rolled back): {}",
+                    err
+                ),
+                Err(rerr) => format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            },
+        });
+    }
+
     Ok(Json::from(entity.clone()))
 }
 
@@ -322,7 +474,13 @@ pub async fn patch_entity_attributes(
     data_store: &State<Box<dyn DataStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     update_request: Json<schemas::UpdateEntityAttributes>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Entity>, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_entities = data_store.get_entities().await;
+
     let full_type = if update_request.namespace.is_empty() {
         update_request.entity_type.clone()
     } else {
@@ -430,6 +588,28 @@ pub async fn patch_entity_attributes(
             reason: err.to_string(),
         })?;
 
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        let rollback_schema = schema_store.get_cedar_schema().await;
+        let rollback_res = data_store
+            .update_entities(prev_entities, rollback_schema)
+            .await
+            .map_err(|e| e.to_string());
+
+        return Err(AgentError::BadRequest {
+            reason: match rollback_res {
+                Ok(_) => format!(
+                    "Authorization cache invalidation failed (data change rolled back): {}",
+                    err
+                ),
+                Err(rerr) => format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            },
+        });
+    }
+
     Ok(Json::from(entity.clone()))
 }
 
@@ -443,7 +623,13 @@ pub async fn add_single_data_entry(
     data_store: &State<Box<dyn DataStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entities: Json<schemas::Entities>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Entities>, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_entities = data_store.get_entities().await;
+
     let schema = schema_store.get_cedar_schema().await;
     info!("Adding a single entity entry");
     if entities.len() != 1 {
@@ -479,12 +665,38 @@ pub async fn add_single_data_entry(
     }
 
     // add new entities to existing entities atomically
-    match data_store.add_entities(vec![new_entity].into_iter().collect(), schema).await {
-        Ok(entities) => Ok(Json::from(entities)),
-        Err(err) => Err(AgentError::BadRequest {
-            reason: err.to_string(),
-        }),
+    let updated = match data_store.add_entities(vec![new_entity].into_iter().collect(), schema).await {
+        Ok(entities) => entities,
+        Err(err) => {
+            return Err(AgentError::BadRequest {
+                reason: err.to_string(),
+            })
+        }
+    };
+
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        let rollback_schema = schema_store.get_cedar_schema().await;
+        let rollback_res = data_store
+            .update_entities(prev_entities, rollback_schema)
+            .await
+            .map_err(|e| e.to_string());
+
+        return Err(AgentError::BadRequest {
+            reason: match rollback_res {
+                Ok(_) => format!(
+                    "Authorization cache invalidation failed (data change rolled back): {}",
+                    err
+                ),
+                Err(rerr) => format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            },
+        });
     }
+
+    Ok(Json::from(updated))
 }
 
 #[openapi]
@@ -495,7 +707,15 @@ pub async fn update_single_data_entry(
     schema_store: &State<Box<dyn SchemaStore>>,
     entity_id: String,
     entities: Json<schemas::Entities>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
+    origin: WriteOrigin,
 ) -> Result<Json<schemas::Entity>, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_entities = data_store.get_entities().await;
+    let skip_invalidation = origin.is_db_entity_sync();
+
     info!("Updating single data entry with id: {}", entity_id);
     let new_entity = if entities.len() == 1 {
         entities.into_inner().into_iter().next().unwrap()
@@ -561,18 +781,40 @@ pub async fn update_single_data_entry(
     info!("Creating new entity: {:#?}", new_entity);
 
     // Persist the new entity to the data store atomically
-    match data_store.add_entities(vec![new_entity.clone()].into_iter().collect(), schema).await {
-        Ok(_) => {
-            info!("Successfully added entity: {:?}", new_entity.get().get("uid"));
-            Ok(Json::from(new_entity))
-        },
-        Err(err) => {
-            warn!("Failed to add entity: {}", err);
-            Err(AgentError::BadRequest {
-                reason: err.to_string(),
-            })
-        },
+    data_store
+        .add_entities(vec![new_entity.clone()].into_iter().collect(), schema)
+        .await
+        .map_err(|err| AgentError::BadRequest {
+            reason: err.to_string(),
+        })?;
+
+    info!("Successfully added entity: {:?}", new_entity.get().get("uid"));
+
+    if !skip_invalidation {
+        let targets = targets_store.list().await;
+        if let Err(err) = invalidation.invalidate_all(targets).await {
+            let rollback_schema = schema_store.get_cedar_schema().await;
+            let rollback_res = data_store
+                .update_entities(prev_entities, rollback_schema)
+                .await
+                .map_err(|e| e.to_string());
+
+            return Err(AgentError::BadRequest {
+                reason: match rollback_res {
+                    Ok(_) => format!(
+                        "Authorization cache invalidation failed (data change rolled back): {}",
+                        err
+                    ),
+                    Err(rerr) => format!(
+                        "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                        err, rerr
+                    ),
+                },
+            });
+        }
     }
+
+    Ok(Json::from(new_entity))
 }
 
 #[openapi]
@@ -582,9 +824,17 @@ pub async fn delete_single_data_entry(
     data_store: &State<Box<dyn DataStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entity_id: String,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
+    origin: WriteOrigin,
 ) -> Result<status::NoContent, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_entities = data_store.get_entities().await;
+    let skip_invalidation = origin.is_db_entity_sync();
+
     let schema = schema_store.get_cedar_schema().await;
-    let existing_entities = data_store.get_entities().await;
+    let existing_entities = prev_entities.clone();
     info!("Deleting single entity with id: {}", entity_id);
     let original_len = existing_entities.len();
     let mut entities = existing_entities.clone();
@@ -615,9 +865,37 @@ pub async fn delete_single_data_entry(
     }
 
     match data_store.update_entities(entities, schema).await {
-        Ok(_) => Ok(status::NoContent),
-        Err(err) => Err(AgentError::BadRequest {
-            reason: err.to_string(),
-        }),
+        Ok(_) => {}
+        Err(err) => {
+            return Err(AgentError::BadRequest {
+                reason: err.to_string(),
+            })
+        }
     }
+
+    if !skip_invalidation {
+        let targets = targets_store.list().await;
+        if let Err(err) = invalidation.invalidate_all(targets).await {
+            let rollback_schema = schema_store.get_cedar_schema().await;
+            let rollback_res = data_store
+                .update_entities(prev_entities, rollback_schema)
+                .await
+                .map_err(|e| e.to_string());
+
+            return Err(AgentError::BadRequest {
+                reason: match rollback_res {
+                    Ok(_) => format!(
+                        "Authorization cache invalidation failed (data change rolled back): {}",
+                        err
+                    ),
+                    Err(rerr) => format!(
+                        "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                        err, rerr
+                    ),
+                },
+            });
+        }
+    }
+
+    Ok(status::NoContent)
 }

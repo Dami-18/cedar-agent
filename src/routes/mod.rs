@@ -4,6 +4,7 @@ use rocket_okapi::openapi;
 
 pub mod authorization;
 pub mod data;
+pub mod invalidation;
 pub mod policies;
 pub mod schema;
 pub mod stats;

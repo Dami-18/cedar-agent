@@ -10,6 +10,7 @@
    - [Policies Management](#policies-management)
    - [Data/Entities Management](#dataentities-management)
    - [Schema Management](#schema-management)
+   - [Invalidation Management](#invalidation-management)
 5. [Data Models](#data-models)
 6. [Error Handling](#error-handling)
 7. [Examples](#examples)
@@ -66,6 +67,8 @@ Cedar-Agent can be configured via command-line arguments or environment variable
 | `--schema, -s` | `CEDAR_AGENT_SCHEMA` | Path to schema JSON file | None |
 | `--policies` | `CEDAR_AGENT_POLICIES` | Path to policies JSON file | None |
 | `--data, -d` | `CEDAR_AGENT_DATA` | Path to entities JSON file | None |
+| (N/A) | `CEDAR_AGENT_INVALIDATION_TARGETS` | JSON array of invalidation targets (in-memory; loaded at startup) | None |
+| (N/A) | `CEDAR_AGENT_INVALIDATION_TIMEOUT_MS` | Per-target invalidation timeout (ms) | 5000 |
 
 ---
 
@@ -1130,6 +1133,42 @@ curl -X DELETE http://localhost:8180/v1/schema/resource/attribute/owner \
 
 ---
 
+## Invalidation Management
+
+Cedar-Agent can push authorization-cache invalidations to configured database targets when policies/schema/entities change.
+
+Key behaviors:
+- Strict mode: for policy/schema/data mutations, the request fails if any configured invalidation target fails; the in-memory change is rolled back.
+- DB-origin entity sync: database extensions that sync entities to Cedar-Agent should set `X-Cedar-Write-Origin: db-entity-sync` so Cedar-Agent skips invalidation (the DB already flushes its own cache on DDL sync).
+
+### List Invalidation Targets
+
+**Endpoint:** `GET /v1/invalidation/targets`
+
+**Authentication:** Required (if enabled)
+
+**Response:** JSON array of targets.
+
+### Replace Invalidation Targets
+
+**Endpoint:** `PUT /v1/invalidation/targets`
+
+**Authentication:** Required (if enabled)
+
+**Request Body:** JSON array of targets:
+```json
+[
+  {"name":"pg-primary-1","kind":"postgres","dsn":"postgres://...","enabled":true},
+  {"name":"mysql-1","kind":"mysql","dsn":"mysql://...","enabled":true}
+]
+```
+
+**Notes:**
+- Targets are stored in-memory for the running cedar-agent instance. Persisted configuration may be added later.
+- A future enhancement is revision/versioning to provide correctness even if push invalidation is missed.
+
+---
+
 ## Data Models
 
 ### Policy
@@ -1774,4 +1813,3 @@ export CEDAR_AGENT_DATA="/path/to/data.json"
 **Document Version:** 1.0  
 **Last Updated:** October 8, 2025  
 **Cedar-Agent Version:** 0.2.0
-

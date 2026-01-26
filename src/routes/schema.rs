@@ -8,6 +8,8 @@ use crate::errors::response::AgentError;
 use crate::schemas::schema::AttributeSchema;
 use crate::schemas::schema::Schema as InternalSchema;
 use crate::schemas::schema::{DeleteAttributeSchema, GenericAttributeSchema};
+use crate::services::invalidation::InvalidationService;
+use crate::services::invalidation::InvalidationTargetsStore;
 use crate::services::data::DataStore;
 use crate::services::policies::PolicyStore;
 use crate::services::schema::SchemaStore;
@@ -32,7 +34,15 @@ pub async fn update_schema(
     policy_store: &State<Box<dyn PolicyStore>>,
     data_store: &State<Box<dyn DataStore>>,
     schema: Json<InternalSchema>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<InternalSchema>, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_schema = schema_store.get_internal_schema().await;
+    let prev_policies = policy_store.get_policies().await;
+    let prev_entities = data_store.get_entities().await;
+
     info!("Updating schema");
     let cedar_schema: CedarSchema = match schema.clone().into_inner().try_into() {
         Ok(schema) => schema,
@@ -69,12 +79,43 @@ pub async fn update_schema(
         }
     }
 
-    match schema_store.update_schema(schema.into_inner()).await {
-        Ok(schema) => Ok(Json::from(schema)),
-        Err(err) => Err(AgentError::BadRequest {
-            reason: err.to_string(),
-        }),
+    let updated = match schema_store.update_schema(schema.into_inner()).await {
+        Ok(schema) => schema,
+        Err(err) => {
+            return Err(AgentError::BadRequest {
+                reason: err.to_string(),
+            })
+        }
+    };
+
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        if let Err(rerr) = rollback_schema_policy_data(
+            prev_schema,
+            prev_policies,
+            prev_entities,
+            schema_store,
+            policy_store,
+            data_store,
+        )
+        .await
+        {
+            return Err(AgentError::BadRequest {
+                reason: format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            });
+        }
+        return Err(AgentError::BadRequest {
+            reason: format!(
+                "Authorization cache invalidation failed (schema change rolled back): {}",
+                err
+            ),
+        });
     }
+
+    Ok(Json::from(updated))
 }
 
 #[openapi]
@@ -82,9 +123,46 @@ pub async fn update_schema(
 pub async fn delete_schema(
     _auth: ApiKey,
     schema_store: &State<Box<dyn SchemaStore>>,
+    policy_store: &State<Box<dyn PolicyStore>>,
+    data_store: &State<Box<dyn DataStore>>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<status::NoContent, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_schema = schema_store.get_internal_schema().await;
+    let prev_policies = policy_store.get_policies().await;
+    let prev_entities = data_store.get_entities().await;
+
     info!("Deleting schema");
     schema_store.delete_schema().await;
+
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        if let Err(rerr) = rollback_schema_policy_data(
+            prev_schema,
+            prev_policies,
+            prev_entities,
+            schema_store,
+            policy_store,
+            data_store,
+        )
+        .await
+        {
+            return Err(AgentError::BadRequest {
+                reason: format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            });
+        }
+        return Err(AgentError::BadRequest {
+            reason: format!(
+                "Authorization cache invalidation failed (schema change rolled back): {}",
+                err
+            ),
+        });
+    }
     Ok(status::NoContent)
 }
 
@@ -96,9 +174,46 @@ pub async fn add_user_attribute(
     policy_store: &State<Box<dyn PolicyStore>>,
     data_store: &State<Box<dyn DataStore>>,
     attr: Json<AttributeSchema>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<InternalSchema>, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_schema = schema_store.get_internal_schema().await;
+    let prev_policies = policy_store.get_policies().await;
+    let prev_entities = data_store.get_entities().await;
+
     info!("Adding attribute to User: '{}'", attr.get_name());
-    add_entity_attribute("User", attr, schema_store, policy_store, data_store).await
+    let res = add_entity_attribute("User", attr, schema_store, policy_store, data_store).await?;
+
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        if let Err(rerr) = rollback_schema_policy_data(
+            prev_schema,
+            prev_policies,
+            prev_entities,
+            schema_store,
+            policy_store,
+            data_store,
+        )
+        .await
+        {
+            return Err(AgentError::BadRequest {
+                reason: format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            });
+        }
+        return Err(AgentError::BadRequest {
+            reason: format!(
+                "Authorization cache invalidation failed (schema change rolled back): {}",
+                err
+            ),
+        });
+    }
+
+    Ok(res)
 }
 
 #[openapi]
@@ -109,9 +224,46 @@ pub async fn add_table_attribute(
     policy_store: &State<Box<dyn PolicyStore>>,
     data_store: &State<Box<dyn DataStore>>,
     attr: Json<AttributeSchema>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<InternalSchema>, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_schema = schema_store.get_internal_schema().await;
+    let prev_policies = policy_store.get_policies().await;
+    let prev_entities = data_store.get_entities().await;
+
     info!("Adding attribute to Table: '{}'", attr.get_name());
-    add_entity_attribute("Table", attr, schema_store, policy_store, data_store).await
+    let res = add_entity_attribute("Table", attr, schema_store, policy_store, data_store).await?;
+
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        if let Err(rerr) = rollback_schema_policy_data(
+            prev_schema,
+            prev_policies,
+            prev_entities,
+            schema_store,
+            policy_store,
+            data_store,
+        )
+        .await
+        {
+            return Err(AgentError::BadRequest {
+                reason: format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            });
+        }
+        return Err(AgentError::BadRequest {
+            reason: format!(
+                "Authorization cache invalidation failed (schema change rolled back): {}",
+                err
+            ),
+        });
+    }
+
+    Ok(res)
 }
 
 #[openapi]
@@ -122,7 +274,15 @@ pub async fn delete_user_attribute(
     schema_store: &State<Box<dyn SchemaStore>>,
     policy_store: &State<Box<dyn PolicyStore>>,
     data_store: &State<Box<dyn DataStore>>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<status::NoContent, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_schema = schema_store.get_internal_schema().await;
+    let prev_policies = policy_store.get_policies().await;
+    let prev_entities = data_store.get_entities().await;
+
     info!("Deleting User attribute '{}'", attr_name);
     let mut schema = schema_store.get_internal_schema().await;
     let something = schema
@@ -183,11 +343,42 @@ pub async fn delete_user_attribute(
     }
     // update the schema in the store
     match schema_store.update_schema(schema).await {
-        Ok(_) => Ok(status::NoContent),
-        Err(err) => Err(AgentError::BadRequest {
-            reason: err.to_string(),
-        }),
+        Ok(_) => {}
+        Err(err) => {
+            return Err(AgentError::BadRequest {
+                reason: err.to_string(),
+            })
+        }
     }
+
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        if let Err(rerr) = rollback_schema_policy_data(
+            prev_schema,
+            prev_policies,
+            prev_entities,
+            schema_store,
+            policy_store,
+            data_store,
+        )
+        .await
+        {
+            return Err(AgentError::BadRequest {
+                reason: format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            });
+        }
+        return Err(AgentError::BadRequest {
+            reason: format!(
+                "Authorization cache invalidation failed (schema change rolled back): {}",
+                err
+            ),
+        });
+    }
+
+    Ok(status::NoContent)
 }
 
 #[openapi]
@@ -198,7 +389,15 @@ pub async fn delete_table_attribute(
     schema_store: &State<Box<dyn SchemaStore>>,
     policy_store: &State<Box<dyn PolicyStore>>,
     data_store: &State<Box<dyn DataStore>>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<status::NoContent, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_schema = schema_store.get_internal_schema().await;
+    let prev_policies = policy_store.get_policies().await;
+    let prev_entities = data_store.get_entities().await;
+
     info!("Deleting Table attribute '{}'", attr_name);
     let mut schema = schema_store.get_internal_schema().await;
     let something = schema
@@ -260,11 +459,42 @@ pub async fn delete_table_attribute(
 
     // update the schema in the store
     match schema_store.update_schema(schema).await {
-        Ok(_) => Ok(status::NoContent),
-        Err(err) => Err(AgentError::BadRequest {
-            reason: err.to_string(),
-        }),
+        Ok(_) => {}
+        Err(err) => {
+            return Err(AgentError::BadRequest {
+                reason: err.to_string(),
+            })
+        }
     }
+
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        if let Err(rerr) = rollback_schema_policy_data(
+            prev_schema,
+            prev_policies,
+            prev_entities,
+            schema_store,
+            policy_store,
+            data_store,
+        )
+        .await
+        {
+            return Err(AgentError::BadRequest {
+                reason: format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            });
+        }
+        return Err(AgentError::BadRequest {
+            reason: format!(
+                "Authorization cache invalidation failed (schema change rolled back): {}",
+                err
+            ),
+        });
+    }
+
+    Ok(status::NoContent)
 }
 
 async fn add_entity_attribute(
@@ -380,7 +610,15 @@ pub async fn add_generic_attribute(
     policy_store: &State<Box<dyn PolicyStore>>,
     data_store: &State<Box<dyn DataStore>>,
     attr: Json<GenericAttributeSchema>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<InternalSchema>, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_schema = schema_store.get_internal_schema().await;
+    let prev_policies = policy_store.get_policies().await;
+    let prev_entities = data_store.get_entities().await;
+
     let attr = attr.into_inner();
     let namespace = attr.namespace.unwrap_or_default();
     info!(
@@ -489,6 +727,33 @@ pub async fn add_generic_attribute(
         }
     }
 
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        if let Err(rerr) = rollback_schema_policy_data(
+            prev_schema,
+            prev_policies,
+            prev_entities,
+            schema_store,
+            policy_store,
+            data_store,
+        )
+        .await
+        {
+            return Err(AgentError::BadRequest {
+                reason: format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            });
+        }
+        return Err(AgentError::BadRequest {
+            reason: format!(
+                "Authorization cache invalidation failed (schema change rolled back): {}",
+                err
+            ),
+        });
+    }
+
     Ok(Json::from(schema))
 }
 
@@ -500,7 +765,15 @@ pub async fn delete_generic_attribute(
     policy_store: &State<Box<dyn PolicyStore>>,
     data_store: &State<Box<dyn DataStore>>,
     attr: Json<DeleteAttributeSchema>,
+    targets_store: &State<InvalidationTargetsStore>,
+    invalidation: &State<InvalidationService>,
+    mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<status::NoContent, AgentError> {
+    let _guard = mutation_lock.lock().await;
+    let prev_schema = schema_store.get_internal_schema().await;
+    let prev_policies = policy_store.get_policies().await;
+    let prev_entities = data_store.get_entities().await;
+
     let attr = attr.into_inner();
     let namespace = attr.namespace.unwrap_or_default();
     info!(
@@ -586,9 +859,71 @@ pub async fn delete_generic_attribute(
     }
     // update the schema in the store
     match schema_store.update_schema(schema).await {
-        Ok(_) => Ok(status::NoContent),
-        Err(err) => Err(AgentError::BadRequest {
-            reason: err.to_string(),
-        }),
+        Ok(_) => {}
+        Err(err) => {
+            return Err(AgentError::BadRequest {
+                reason: err.to_string(),
+            })
+        }
     }
+
+    let targets = targets_store.list().await;
+    if let Err(err) = invalidation.invalidate_all(targets).await {
+        if let Err(rerr) = rollback_schema_policy_data(
+            prev_schema,
+            prev_policies,
+            prev_entities,
+            schema_store,
+            policy_store,
+            data_store,
+        )
+        .await
+        {
+            return Err(AgentError::BadRequest {
+                reason: format!(
+                    "Authorization cache invalidation failed and rollback failed: {} (rollback error: {})",
+                    err, rerr
+                ),
+            });
+        }
+        return Err(AgentError::BadRequest {
+            reason: format!(
+                "Authorization cache invalidation failed (schema change rolled back): {}",
+                err
+            ),
+        });
+    }
+
+    Ok(status::NoContent)
+}
+
+async fn rollback_schema_policy_data(
+    prev_schema: InternalSchema,
+    prev_policies: Vec<crate::schemas::policies::Policy>,
+    prev_entities: crate::schemas::data::Entities,
+    schema_store: &State<Box<dyn SchemaStore>>,
+    policy_store: &State<Box<dyn PolicyStore>>,
+    data_store: &State<Box<dyn DataStore>>,
+) -> Result<(), String> {
+    schema_store
+        .update_schema(prev_schema.clone())
+        .await
+        .map_err(|e| format!("schema rollback failed: {}", e))?;
+
+    let cedar_schema: CedarSchema = prev_schema
+        .clone()
+        .try_into()
+        .map_err(|e| format!("schema rollback conversion failed: {}", e))?;
+
+    policy_store
+        .update_policies(prev_policies, Some(cedar_schema.clone()))
+        .await
+        .map_err(|e| format!("policies rollback failed: {}", e))?;
+
+    data_store
+        .update_entities(prev_entities, Some(cedar_schema))
+        .await
+        .map_err(|e| format!("entities rollback failed: {}", e))?;
+
+    Ok(())
 }
