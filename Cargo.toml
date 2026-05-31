@@ -13,8 +13,8 @@ repository = "https://github.com/permitio/cedar-agent"
 [dependencies]
 async-lock = "2.7.0"
 async-trait = "0.1.68"
-cedar-policy = "4.7.0"
-cedar-policy-core = "4.7.0"
+cedar-policy = { git = "https://github.com/Dami-18/cedar.git", branch = "poltree" }
+cedar-policy-core = { git = "https://github.com/Dami-18/cedar.git", branch = "poltree" }
 clap = { version = "4.2.5", features = ["derive"] }
 envy = "0.4.2"
 log = "0.4.17"
