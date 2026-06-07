@@ -1,0 +1,206 @@
+[
+    {
+        "uid": { "type": "User", "id": "alice" },
+        "attrs": {
+            "p_name": "alice",
+            "p_team": "eng",
+            "p_country": "us",
+            "p_clearance": "high",
+            "p_role": "manager",
+            "p_project": "alpha"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "User", "id": "bob" },
+        "attrs": {
+            "p_name": "bob",
+            "p_team": "eng",
+            "p_country": "eu",
+            "p_clearance": "low",
+            "p_role": "employee",
+            "p_project": "beta"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "User", "id": "carol" },
+        "attrs": {
+            "p_name": "carol",
+            "p_team": "finance",
+            "p_country": "us",
+            "p_clearance": "high",
+            "p_role": "auditor",
+            "p_project": "gamma"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "User", "id": "dave" },
+        "attrs": {
+            "p_name": "dave",
+            "p_team": "hr",
+            "p_country": "us",
+            "p_clearance": "low",
+            "p_role": "employee",
+            "p_project": "ops"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "User", "id": "eve" },
+        "attrs": {
+            "p_name": "eve",
+            "p_team": "eng",
+            "p_country": "us",
+            "p_clearance": "high",
+            "p_role": "employee",
+            "p_project": "alpha"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "User", "id": "mallory" },
+        "attrs": {
+            "p_name": "mallory",
+            "p_team": "vendor",
+            "p_country": "us",
+            "p_clearance": "low",
+            "p_role": "contractor",
+            "p_project": "alpha"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "User", "id": "trent" },
+        "attrs": {
+            "p_name": "trent",
+            "p_team": "vendor",
+            "p_country": "eu",
+            "p_clearance": "low",
+            "p_role": "contractor",
+            "p_project": "beta"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "Photo", "id": "eng-public-us-alpha-1" },
+        "attrs": {
+            "r_team": "eng",
+            "r_region": "us",
+            "r_sensitivity": "public",
+            "r_project": "alpha"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "Photo", "id": "eng-conf-us-alpha-2" },
+        "attrs": {
+            "r_team": "eng",
+            "r_region": "us",
+            "r_sensitivity": "confidential",
+            "r_project": "alpha"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "Photo", "id": "eng-public-eu-beta-3" },
+        "attrs": {
+            "r_team": "eng",
+            "r_region": "eu",
+            "r_sensitivity": "public",
+            "r_project": "beta"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "Photo", "id": "eng-internal-us-alpha-4" },
+        "attrs": {
+            "r_team": "eng",
+            "r_region": "us",
+            "r_sensitivity": "internal",
+            "r_project": "alpha"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "Photo", "id": "eng-secret-us-alpha-5" },
+        "attrs": {
+            "r_team": "eng",
+            "r_region": "us",
+            "r_sensitivity": "secret",
+            "r_project": "alpha"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "Photo", "id": "fin-conf-us-gamma-6" },
+        "attrs": {
+            "r_team": "finance",
+            "r_region": "us",
+            "r_sensitivity": "confidential",
+            "r_project": "gamma"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "Photo", "id": "fin-public-us-gamma-7" },
+        "attrs": {
+            "r_team": "finance",
+            "r_region": "us",
+            "r_sensitivity": "public",
+            "r_project": "gamma"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "Photo", "id": "fin-public-eu-delta-8" },
+        "attrs": {
+            "r_team": "finance",
+            "r_region": "eu",
+            "r_sensitivity": "public",
+            "r_project": "delta"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "Photo", "id": "hr-internal-us-ops-9" },
+        "attrs": {
+            "r_team": "hr",
+            "r_region": "us",
+            "r_sensitivity": "internal",
+            "r_project": "ops"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "Photo", "id": "shared-public-us-alpha-10" },
+        "attrs": {
+            "r_team": "shared",
+            "r_region": "us",
+            "r_sensitivity": "public",
+            "r_project": "alpha"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "Photo", "id": "shared-internal-eu-beta-11" },
+        "attrs": {
+            "r_team": "shared",
+            "r_region": "eu",
+            "r_sensitivity": "internal",
+            "r_project": "beta"
+        },
+        "parents": []
+    },
+    {
+        "uid": { "type": "Photo", "id": "shared-conf-us-alpha-12" },
+        "attrs": {
+            "r_team": "shared",
+            "r_region": "us",
+            "r_sensitivity": "confidential",
+            "r_project": "alpha"
+        },
+        "parents": []
+    }
+]

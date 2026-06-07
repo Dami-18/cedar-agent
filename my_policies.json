@@ -1,0 +1,62 @@
+[
+  {
+    "id": "policy-01-eng-public",
+    "content": "permit(principal,action,resource) when { principal.p_team == \"eng\" && resource.r_team == \"eng\" && resource.r_sensitivity == \"public\" };"
+  },
+  {
+    "id": "policy-02-eng-high-confidential",
+    "content": "permit(principal,action,resource) when { principal.p_team == \"eng\" && principal.p_clearance == \"high\" && resource.r_team == \"eng\" && resource.r_sensitivity == \"confidential\" };"
+  },
+  {
+    "id": "policy-03-eng-eu-region",
+    "content": "permit(principal,action,resource) when { principal.p_team == \"eng\" && principal.p_country == \"eu\" && resource.r_team == \"eng\" && resource.r_region == \"eu\" };"
+  },
+  {
+    "id": "policy-04-finance-high-confidential",
+    "content": "permit(principal,action,resource) when { principal.p_team == \"finance\" && principal.p_clearance == \"high\" && resource.r_team == \"finance\" && resource.r_region == \"us\" && resource.r_sensitivity == \"confidential\" };"
+  },
+  {
+    "id": "policy-05-finance-auditor-public",
+    "content": "permit(principal,action,resource) when { principal.p_team == \"finance\" && principal.p_role == \"auditor\" && resource.r_team == \"finance\" && resource.r_sensitivity == \"public\" };"
+  },
+  {
+    "id": "policy-06-hr-us-internal",
+    "content": "permit(principal,action,resource) when { principal.p_team == \"hr\" && principal.p_country == \"us\" && resource.r_team == \"hr\" && resource.r_region == \"us\" && resource.r_sensitivity == \"internal\" };"
+  },
+  {
+    "id": "policy-07-contractor-alpha-public",
+    "content": "permit(principal,action,resource) when { principal.p_role == \"contractor\" && principal.p_project == \"alpha\" && resource.r_project == \"alpha\" && resource.r_sensitivity == \"public\" };"
+  },
+  {
+    "id": "policy-08-contractor-beta-internal",
+    "content": "permit(principal,action,resource) when { principal.p_role == \"contractor\" && principal.p_project == \"beta\" && resource.r_project == \"beta\" && resource.r_sensitivity == \"internal\" };"
+  },
+  {
+    "id": "policy-09-alice-alpha-confidential",
+    "content": "permit(principal,action,resource) when { principal.p_name == \"alice\" && resource.r_project == \"alpha\" && resource.r_sensitivity == \"confidential\" };"
+  },
+  {
+    "id": "policy-10-bob-eu-eng-public",
+    "content": "permit(principal,action,resource) when { principal.p_name == \"bob\" && principal.p_country == \"eu\" && resource.r_team == \"eng\" && resource.r_region == \"eu\" && resource.r_sensitivity == \"public\" };"
+  },
+  {
+    "id": "policy-11-carol-finance-us-public",
+    "content": "permit(principal,action,resource) when { principal.p_name == \"carol\" && resource.r_team == \"finance\" && resource.r_region == \"us\" && resource.r_sensitivity == \"public\" };"
+  },
+  {
+    "id": "policy-12-dave-hr-us-internal",
+    "content": "permit(principal,action,resource) when { principal.p_name == \"dave\" && resource.r_team == \"hr\" && resource.r_region == \"us\" && resource.r_sensitivity == \"internal\" };"
+  },
+  {
+    "id": "policy-13-eng-high-alpha-secret",
+    "content": "permit(principal,action,resource) when { principal.p_team == \"eng\" && principal.p_clearance == \"high\" && resource.r_project == \"alpha\" && resource.r_sensitivity == \"secret\" };"
+  },
+  {
+    "id": "policy-14-finance-eu-public",
+    "content": "permit(principal,action,resource) when { principal.p_team == \"finance\" && principal.p_country == \"eu\" && resource.r_team == \"finance\" && resource.r_region == \"eu\" && resource.r_sensitivity == \"public\" };"
+  },
+  {
+    "id": "policy-15-eng-manager-internal",
+    "content": "permit(principal,action,resource) when { principal.p_team == \"eng\" && principal.p_role == \"manager\" && resource.r_team == \"eng\" && resource.r_sensitivity == \"internal\" };"
+  }
+]
