@@ -11,9 +11,11 @@ use std::str::FromStr;
 use crate::authn::ApiKey;
 use crate::errors::response::AgentError;
 use crate::schemas::data as schemas;
+use crate::services::authorizer::AuthorizerService;
+use crate::services::data::DataStore;
 use crate::services::invalidation::InvalidationService;
 use crate::services::invalidation::InvalidationTargetsStore;
-use crate::services::data::DataStore;
+use crate::services::policies::PolicyStore;
 use crate::services::schema::SchemaStore;
 use crate::write_origin::WriteOrigin;
 use log::{info, warn};
@@ -33,10 +35,12 @@ pub async fn get_entities(
 pub async fn update_entities(
     _auth: ApiKey,
     data_store: &State<Box<dyn DataStore>>,
+    policy_store: &State<Box<dyn PolicyStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entities: Json<schemas::Entities>,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Entities>, AgentError> {
     let _guard = mutation_lock.lock().await;
@@ -96,6 +100,10 @@ pub async fn update_entities(
         });
     }
 
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
+
     Ok(Json::from(updated))
 }
 
@@ -104,9 +112,11 @@ pub async fn update_entities(
 pub async fn delete_entities(
     _auth: ApiKey,
     data_store: &State<Box<dyn DataStore>>,
+    policy_store: &State<Box<dyn PolicyStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<status::NoContent, AgentError> {
     let _guard = mutation_lock.lock().await;
@@ -136,6 +146,11 @@ pub async fn delete_entities(
             },
         });
     }
+
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
+
     Ok(status::NoContent)
 }
 
@@ -144,10 +159,12 @@ pub async fn delete_entities(
 pub async fn add_new_entity(
     _auth: ApiKey,
     data_store: &State<Box<dyn DataStore>>,
+    policy_store: &State<Box<dyn PolicyStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entity: Json<schemas::NewEntity>,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Entities>, AgentError> {
     let _guard = mutation_lock.lock().await;
@@ -222,6 +239,10 @@ pub async fn add_new_entity(
         });
     }
 
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
+
     Ok(Json::from(updated))
 }
 
@@ -230,10 +251,12 @@ pub async fn add_new_entity(
 pub async fn update_entity_attribute(
     _auth: ApiKey,
     data_store: &State<Box<dyn DataStore>>,
+    policy_store: &State<Box<dyn PolicyStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entity_attribute: Json<schemas::EntityAttributeWithValue>,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Entity>, AgentError> {
     let _guard = mutation_lock.lock().await;
@@ -348,6 +371,10 @@ pub async fn update_entity_attribute(
         });
     }
 
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
+
     Ok(Json::from(entity.clone()))
 }
 
@@ -356,10 +383,12 @@ pub async fn update_entity_attribute(
 pub async fn delete_entity_attribute(
     _auth: ApiKey,
     data_store: &State<Box<dyn DataStore>>,
+    policy_store: &State<Box<dyn PolicyStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entity_attribute: Json<schemas::EntityAttribute>,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Entity>, AgentError> {
     let _guard = mutation_lock.lock().await;
@@ -464,6 +493,10 @@ pub async fn delete_entity_attribute(
         });
     }
 
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
+
     Ok(Json::from(entity.clone()))
 }
 
@@ -472,10 +505,12 @@ pub async fn delete_entity_attribute(
 pub async fn patch_entity_attributes(
     _auth: ApiKey,
     data_store: &State<Box<dyn DataStore>>,
+    policy_store: &State<Box<dyn PolicyStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     update_request: Json<schemas::UpdateEntityAttributes>,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Entity>, AgentError> {
     let _guard = mutation_lock.lock().await;
@@ -610,6 +645,10 @@ pub async fn patch_entity_attributes(
         });
     }
 
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
+
     Ok(Json::from(entity.clone()))
 }
 
@@ -621,10 +660,12 @@ pub async fn patch_entity_attributes(
 pub async fn add_single_data_entry(
     _auth: ApiKey,
     data_store: &State<Box<dyn DataStore>>,
+    policy_store: &State<Box<dyn PolicyStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entities: Json<schemas::Entities>,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Entities>, AgentError> {
     let _guard = mutation_lock.lock().await;
@@ -696,6 +737,10 @@ pub async fn add_single_data_entry(
         });
     }
 
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
+
     Ok(Json::from(updated))
 }
 
@@ -704,11 +749,13 @@ pub async fn add_single_data_entry(
 pub async fn update_single_data_entry(
     _auth: ApiKey,
     data_store: &State<Box<dyn DataStore>>,
+    policy_store: &State<Box<dyn PolicyStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entity_id: String,
     entities: Json<schemas::Entities>,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
     origin: WriteOrigin,
 ) -> Result<Json<schemas::Entity>, AgentError> {
@@ -814,6 +861,10 @@ pub async fn update_single_data_entry(
         }
     }
 
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
+
     Ok(Json::from(new_entity))
 }
 
@@ -822,10 +873,12 @@ pub async fn update_single_data_entry(
 pub async fn delete_single_data_entry(
     _auth: ApiKey,
     data_store: &State<Box<dyn DataStore>>,
+    policy_store: &State<Box<dyn PolicyStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     entity_id: String,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
     origin: WriteOrigin,
 ) -> Result<status::NoContent, AgentError> {
@@ -896,6 +949,10 @@ pub async fn delete_single_data_entry(
             });
         }
     }
+
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
 
     Ok(status::NoContent)
 }

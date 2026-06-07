@@ -52,6 +52,14 @@ impl AuthorizationRequest {
         self.entities
     }
 
+    pub fn is_store_backed(&self) -> bool {
+        self.entities.is_none() && self.additional_entities.is_none()
+    }
+
+    pub fn request(&self) -> &Request {
+        &self.request
+    }
+
     pub fn get_request_entities(
         self,
         stored_entities: Entities,

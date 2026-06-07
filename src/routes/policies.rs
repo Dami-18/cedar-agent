@@ -8,6 +8,8 @@ use rocket_okapi::openapi;
 use crate::authn::ApiKey;
 use crate::errors::response::AgentError;
 use crate::schemas::policies as schemas;
+use crate::services::authorizer::AuthorizerService;
+use crate::services::data::DataStore;
 use crate::services::invalidation::InvalidationService;
 use crate::services::invalidation::InvalidationTargetsStore;
 use crate::services::policies::errors::PolicyStoreError;
@@ -48,9 +50,11 @@ pub async fn create_policy(
     _auth: ApiKey,
     policy: Json<schemas::Policy>,
     policy_store: &State<Box<dyn PolicyStore>>,
+    data_store: &State<Box<dyn DataStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Policy>, AgentError> {
     let _guard = mutation_lock.lock().await;
@@ -109,6 +113,10 @@ pub async fn create_policy(
         });
     }
 
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
+
     Ok(Json::from(created))
 }
 
@@ -118,9 +126,11 @@ pub async fn update_policies(
     _auth: ApiKey,
     policy: Json<Vec<schemas::Policy>>,
     policy_store: &State<Box<dyn PolicyStore>>,
+    data_store: &State<Box<dyn DataStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<Vec<schemas::Policy>>, AgentError> {
     let _guard = mutation_lock.lock().await;
@@ -191,6 +201,10 @@ pub async fn update_policies(
         });
     }
 
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
+
     Ok(Json::from(updated))
 }
 
@@ -201,9 +215,11 @@ pub async fn update_policy(
     id: String,
     policy: Json<schemas::PolicyUpdate>,
     policy_store: &State<Box<dyn PolicyStore>>,
+    data_store: &State<Box<dyn DataStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<Json<schemas::Policy>, AgentError> {
     let _guard = mutation_lock.lock().await;
@@ -258,6 +274,10 @@ pub async fn update_policy(
         });
     }
 
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
+
     Ok(Json::from(updated))
 }
 
@@ -267,9 +287,11 @@ pub async fn delete_policy(
     _auth: ApiKey,
     id: String,
     policy_store: &State<Box<dyn PolicyStore>>,
+    data_store: &State<Box<dyn DataStore>>,
     schema_store: &State<Box<dyn SchemaStore>>,
     targets_store: &State<InvalidationTargetsStore>,
     invalidation: &State<InvalidationService>,
+    authorizer_service: &State<AuthorizerService>,
     mutation_lock: &State<tokio::sync::Mutex<()>>,
 ) -> Result<status::NoContent, AgentError> {
     let _guard = mutation_lock.lock().await;
@@ -305,6 +327,10 @@ pub async fn delete_policy(
             },
         });
     }
+
+    authorizer_service
+        .rebuild_cache(policy_store, data_store)
+        .await;
 
     Ok(status::NoContent)
 }

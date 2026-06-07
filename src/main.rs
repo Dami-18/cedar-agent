@@ -11,6 +11,7 @@ use rocket_cors::{AllowedHeaders, AllowedOrigins, CorsOptions};
 use rocket_okapi::settings::UrlObject;
 use rocket_okapi::{openapi_get_routes, rapidoc::*, swagger_ui::*};
 
+use crate::services::authorizer::AuthorizerService;
 use crate::services::data::memory::MemoryDataStore;
 use crate::services::data::DataStore;
 use crate::services::invalidation::InvalidationService;
@@ -72,6 +73,7 @@ async fn main() -> ExitCode {
         .attach(services::schema::load_from_file::InitSchemaFairing)
         .attach(services::data::load_from_file::InitDataFairing)
         .attach(services::policies::load_from_file::InitPoliciesFairing)
+        .attach(services::authorizer::InitAuthorizerCacheFairing)
         .manage(config)
         .manage(tokio::sync::Mutex::new(()))
         .manage(Box::new(MemoryPolicyStore::new()) as Box<dyn PolicyStore>)
@@ -85,7 +87,7 @@ async fn main() -> ExitCode {
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(5000),
         )))
-        .manage(cedar_policy::Authorizer::new())
+        .manage(AuthorizerService::new())
         .register(
             "/",
             catchers![

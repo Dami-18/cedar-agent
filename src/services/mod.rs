@@ -1,3 +1,4 @@
+pub mod authorizer;
 pub mod data;
 pub mod invalidation;
 pub mod policies;
