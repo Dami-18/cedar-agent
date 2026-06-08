@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use log::{debug, info, warn};
 
 use rocket::serde::json::Json;
@@ -22,6 +24,8 @@ pub async fn is_authorized(
     authorizer_service: &State<AuthorizerService>,
     authorization_call: Json<AuthorizationCall>,
 ) -> Result<Json<AuthorizationAnswer>, AgentError> {
+    let total_start = Instant::now();
+
     stats_store.increment_auth_request().await;
 
     debug!("Received authorization request: {:?}", authorization_call);
@@ -41,17 +45,33 @@ pub async fn is_authorized(
         info!("Querying cedar using cached authorizer with {:?}", &request);
 
         let cache = authorizer_service.cache.read().await;
-        match cache.as_ref() {
-            Some(cached) => cached.is_authorized(&request),
+        let eval_start = Instant::now();
+        let result = match cache.as_ref() {
+            Some(cached) => {
+                let answer = cached.is_authorized(&request);
+                info!(
+                    "[CACHED] Authorization evaluated in {:.3}ms (total: {:.3}ms)",
+                    eval_start.elapsed().as_secs_f64() * 1000.0,
+                    total_start.elapsed().as_secs_f64() * 1000.0
+                );
+                answer
+            }
             None => {
                 warn!("Cached authorizer not ready; falling back to stateless authorizer");
                 let policies = policy_store.policy_set().await;
                 let entities = data_store.entities().await;
-                authorizer_service
+                let answer = authorizer_service
                     .fallback
-                    .is_authorized(&request, &policies, &entities)
+                    .is_authorized(&request, &policies, &entities);
+                info!(
+                    "[FALLBACK] Authorization evaluated in {:.3}ms (total: {:.3}ms)",
+                    eval_start.elapsed().as_secs_f64() * 1000.0,
+                    total_start.elapsed().as_secs_f64() * 1000.0
+                );
+                answer
             }
-        }
+        };
+        result
     } else {
         let policies = policy_store.policy_set().await;
         let stored_entities = data_store.entities().await;
@@ -66,9 +86,16 @@ pub async fn is_authorized(
         };
 
         info!("Querying cedar using stateless authorizer with {:?}", &request);
-        authorizer_service
+        let eval_start = Instant::now();
+        let answer = authorizer_service
             .fallback
-            .is_authorized(&request, &policies, &entities)
+            .is_authorized(&request, &policies, &entities);
+        info!(
+            "[STATELESS] Authorization evaluated in {:.3}ms (total: {:.3}ms)",
+            eval_start.elapsed().as_secs_f64() * 1000.0,
+            total_start.elapsed().as_secs_f64() * 1000.0
+        );
+        answer
     };
 
     debug!("Authorization answer: {:?}", answer);
