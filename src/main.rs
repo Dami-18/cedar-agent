@@ -117,6 +117,7 @@ async fn main() -> ExitCode {
                 routes::data::patch_entity_attributes,
                 routes::data::add_new_entity,
                 routes::authorization::is_authorized,
+                routes::authorization::is_authorized_poltree,
                 routes::schema::get_schema,
                 routes::schema::update_schema,
                 routes::schema::delete_schema,
