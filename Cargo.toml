@@ -8,6 +8,7 @@ readme = "README.md"
 homepage = "https://github.com/permitio/cedar-agent"
 description = "Cedar-Agent is an HTTP server designed to efficiently manage a policy store and a data store. It provides a seamless integration with Cedar, a language for defining permissions as policies."
 repository = "https://github.com/permitio/cedar-agent"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -27,3 +28,22 @@ serde = "1.0.160"
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-native-tls", "postgres", "mysql"] }
 thiserror = "1.0.40"
 tokio = { version = "1.28.0", features = ["rt-multi-thread", "macros", "time"] }
+
+# ─── Benchmark dependencies ────────────────────────────────────────────────────
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# ─── Benchmark binary ──────────────────────────────────────────────────────────
+# `harness = false` tells Cargo NOT to use the standard test harness so
+# Criterion can install its own main().
+[[bench]]
+name = "authorizer"
+path = "benches/authorizer.rs"
+harness = false
+
+# ─── Profile: release-with-debug-info for profiling (optional) ───────────────
+[profile.bench]
+# Identical to release but keeps debug symbols for flamegraph / perf.
+opt-level = 3
+debug = 1
+lto = "thin"
