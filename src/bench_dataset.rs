@@ -3,17 +3,13 @@
 // Reproducible workload generator for Cedar / PolTree benchmarks
 
 use cedar_policy::{
-    Authorizer, Context, Decision, Entities, Entity, EntityId, EntityTypeName, EntityUid,
+Context, Entities, Entity, EntityId, EntityTypeName, EntityUid,
     PolicySet, Request,
 };
 use std::collections::HashMap;
 use std::str::FromStr;
 
-// ─────────────────────────────────────────────
-// Public configuration struct
-// ─────────────────────────────────────────────
-
-/// Parameters that fully describe one benchmark workload.
+/// Parameters that fully describe one benchmark workload
 #[derive(Debug, Clone)]
 pub struct DatasetConfig {
     /// Number of User entities.
@@ -47,10 +43,6 @@ impl Default for DatasetConfig {
     }
 }
 
-// ─────────────────────────────────────────────
-// Tiny seeded LCG so we have zero extra deps
-// ─────────────────────────────────────────────
-
 struct Lcg(u64);
 
 impl Lcg {
@@ -70,10 +62,6 @@ impl Lcg {
     }
 }
 
-// ─────────────────────────────────────────────
-// Generated dataset
-// ─────────────────────────────────────────────
-
 pub struct BenchDataset {
     pub policy_set: PolicySet,
     pub entities: Entities,
@@ -83,19 +71,13 @@ pub struct BenchDataset {
     pub all_requests: Vec<Request>,
 }
 
-// ─────────────────────────────────────────────
-// Generator
-// ─────────────────────────────────────────────
-
 pub fn generate(cfg: &DatasetConfig) -> BenchDataset {
     let mut rng = Lcg::new(cfg.seed);
 
-    // ── Type names ────────────────────────────
     let user_type: EntityTypeName = "User".parse().unwrap();
     let doc_type: EntityTypeName = "Document".parse().unwrap();
     let action_type: EntityTypeName = "Action".parse().unwrap();
 
-    // ── Attribute value pools ─────────────────
     // We use simple strings: "dept_0", "dept_1", …
     // The attribute names themselves are "ua0", "ua1", … (user) and "da0", "da1", … (doc).
     let user_attr_names: Vec<String> = (0..cfg.attrs_per_user).map(|i| format!("ua{i}")).collect();
@@ -105,7 +87,6 @@ pub fn generate(cfg: &DatasetConfig) -> BenchDataset {
         format!("{prefix}_{attr_idx}_{val_idx}")
     };
 
-    // ── Entities ──────────────────────────────
     let mut entity_list: Vec<Entity> = Vec::new();
 
     // Action entity (single shared action)
@@ -163,7 +144,6 @@ pub fn generate(cfg: &DatasetConfig) -> BenchDataset {
 
     let entities = Entities::from_entities(entity_list, None).unwrap();
 
-    // ── Policies ──────────────────────────────
     // Each policy constrains one user-attribute value AND one doc-attribute value.
     // Template:
     //   permit(
@@ -238,7 +218,6 @@ permit(
 
     let policy_set: PolicySet = policy_src.parse().expect("generated policy text is invalid");
 
-    // ── Sample requests ───────────────────────
     let mut rng2 = Lcg::new(cfg.seed.wrapping_add(1));
     let mut all_requests: Vec<Request> = Vec::new();
 
@@ -278,11 +257,6 @@ permit(
     }
 }
 
-// ─────────────────────────────────────────────
-// Scaling helpers (used directly by benches)
-// ─────────────────────────────────────────────
-
-/// Returns configs for the **policy scaling** experiment.
 /// N sweeps from `start` to `end` in multiplicative steps.
 pub fn policy_scaling_configs(
     start: usize,
@@ -311,7 +285,6 @@ pub fn policy_scaling_configs(
         .collect()
 }
 
-/// Returns configs for the **entity scaling** experiment.
 pub fn entity_scaling_configs(
     start: usize,
     end: usize,
@@ -338,7 +311,6 @@ pub fn entity_scaling_configs(
         .collect()
 }
 
-/// Returns configs for the **attribute scaling** experiment.
 pub fn attr_scaling_configs(
     start: usize,
     end: usize,
@@ -366,7 +338,6 @@ pub fn attr_scaling_configs(
         .collect()
 }
 
-// ── internal helper ───────────────────────────
 fn log_steps(start: usize, end: usize, steps: usize) -> Vec<usize> {
     if steps <= 1 {
         return vec![start, end];
