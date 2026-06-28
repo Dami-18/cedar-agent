@@ -8,6 +8,7 @@ readme = "README.md"
 homepage = "https://github.com/permitio/cedar-agent"
 description = "Cedar-Agent is an HTTP server designed to efficiently manage a policy store and a data store. It provides a seamless integration with Cedar, a language for defining permissions as policies."
 repository = "https://github.com/permitio/cedar-agent"
+default-run = "cedar-agent"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
