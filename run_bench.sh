@@ -3,7 +3,7 @@ set -euo pipefail
 
 HOST="127.0.0.1"
 PORT="8180"
-DURATION="60s"
+DURATION="40s"
 CONN_MULTIPLIER="4"
 RATE="1000"
 RESULTS_DIR="benchmark/results"
@@ -128,16 +128,16 @@ load_and_start() {
 
 trap stop_agent EXIT
 
-THREADS_LEVELS=(1 8 16 32 64 128)
-POLICY_COUNTS=(10 50 100 250 500 1000)
-ENTITY_TOTALS=(10000 50000 100000 500000 1000000)
-ATTR_COUNTS=(1 3 5 10 15 20)
+THREADS_LEVELS=(16)
+POLICY_COUNTS=(10 100 500 1000)
+ENTITY_TOTALS=(10000 50000 100000 500000)
+ATTR_COUNTS=(1 5 10 20)
 
 echo "Experiment 1: Policy scaling"
 for n_pol in "${POLICY_COUNTS[@]}"; do
     load_and_start \
         --policies "$n_pol" --users 500 --documents 2000 \
-        --requests 50000 --departments 8 --attributes-per-entity 3 \
+        --requests 25000 --departments 8 --attributes-per-entity 3 \
         --seed 42 --out bench_data
 
     for THREADS in "${THREADS_LEVELS[@]}"; do
@@ -153,7 +153,7 @@ for n_ent in "${ENTITY_TOTALS[@]}"; do
 
     load_and_start \
         --users "$n_users" --documents "$n_docs" \
-        --policies 100 --requests 50000 \
+        --policies 100 --requests 25000 \
         --departments 8 --attributes-per-entity 3 \
         --seed 42 --out bench_data
 
@@ -167,7 +167,7 @@ echo "Experiment 3: Attribute scaling"
 for n_attr in "${ATTR_COUNTS[@]}"; do
     load_and_start \
         --users 500 --documents 2000 \
-        --policies 100 --requests 50000 \
+        --policies 100 --requests 25000 \
         --departments 8 --attributes-per-entity "$n_attr" \
         --seed 42 --out bench_data
 
