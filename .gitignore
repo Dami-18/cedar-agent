@@ -3,6 +3,7 @@
 debug/
 target/
 bench_data/
+bench_data_scale_tmp/
 benchmark/results/
 benchmark/cedar_agent.log
 
