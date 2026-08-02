@@ -70,21 +70,4 @@ fn main() {
 
     println!("Generating dataset:\n{cfg:#?}\n");
     generate_dataset(&cfg, &cli.out);
-
-    println!("\nNext steps:");
-    println!("  1. Load entities into cedar-agent:");
-    println!("       curl -X PUT -H 'Content-Type: application/json' \\");
-    println!("            -d @{}/entities.json \\", cli.out);
-    println!("            http://localhost:8180/v1/data");
-    println!();
-    println!("  2. Load policies into cedar-agent:");
-    println!("       curl -X PUT -H 'Content-Type: application/json' \\");
-    println!("            -d @{}/policies.json \\", cli.out);
-    println!("            http://localhost:8180/v1/policies");
-    println!();
-    println!("  3. Run sysbench:");
-    println!("       sysbench benchmark/cedar.lua \\");
-    println!("         --requests-file={}/requests.jsonl \\", cli.out);
-    println!("         --cedar-url=http://127.0.0.1:8180 \\");
-    println!("         --threads=32 --time=60 run");
 }
