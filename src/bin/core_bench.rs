@@ -30,7 +30,31 @@ struct Cli {
 
     #[arg(long, default_value_t = 2)]
     warmup_requests: usize,
+
+    /// Number of independent, from-scratch PolTree builds to time. Reported
+    /// separately from the per-request latency/throughput numbers below and
+    /// NEVER folded into the speedup calculation -- it's a one-time setup
+    /// cost, not a per-request cost.
+    #[arg(long, default_value_t = 3)]
+    build_trials: usize,
+
+    /// Print only the CSV data row (see `csv_header` for the matching header)
+    /// instead of the human-readable report. For sweeping many dataset
+    /// configurations into a results table.
+    #[arg(long)]
+    csv: bool,
+
+    /// Print only the CSV header line for `--csv` output, then exit
+    /// immediately without loading any dataset.
+    #[arg(long)]
+    csv_header: bool,
 }
+
+const CSV_HEADER: &str = "policies,requests,entities,threads,iterations,warmup_requests,\
+build_trials,build_mean_ms,build_min_ms,build_max_ms,residual_policies,total_policies,\
+stateless_rps,stateless_avg_ms,stateless_p50_ms,stateless_p95_ms,stateless_p99_ms,stateless_max_ms,\
+poltree_rps,poltree_avg_ms,poltree_p50_ms,poltree_p95_ms,poltree_p99_ms,poltree_max_ms,\
+latency_speedup,throughput_speedup";
 
 #[derive(Debug, Deserialize)]
 struct PolicyEntry {
@@ -60,8 +84,72 @@ struct WorkerResult {
     checksum: u64,
 }
 
+/// PolTree construction cost, measured independently of any per-request
+/// query. Always excluded from the speedup numbers -- it's a one-time,
+/// amortized-over-many-requests setup cost, not a per-request cost -- but
+/// reported so it can be cited on its own (e.g. "how long until this dataset's
+/// tree is ready to serve").
+#[derive(Debug)]
+struct BuildStats {
+    trials: usize,
+    mean_ms: f64,
+    min_ms: f64,
+    max_ms: f64,
+    /// Policies PolTree could not represent and must fall back to real
+    /// evaluation for on every request (see `cedar_policy_core::poltree`).
+    /// Non-zero here means the reported query speedup below is diluted by
+    /// fallback overhead, not pure indexed-lookup performance.
+    residual_policies: usize,
+    total_policies: usize,
+}
+
+/// Time `trials` independent, from-scratch builds of the PolTree for
+/// `policy_set`/`entities`, bypassing `CachedAuthorizer`'s disk cache
+/// entirely so this measures real construction cost, not deserialization.
+fn measure_poltree_build(
+    policy_set: &PolicySet,
+    entities: &Entities,
+    trials: usize,
+) -> BuildStats {
+    let core_policy_set: &cedar_policy_core::ast::PolicySet = policy_set.as_ref();
+    let core_entities: &cedar_policy_core::entities::Entities = entities.as_ref();
+
+    let residual_ids =
+        cedar_policy_core::poltree::residual_policy_ids(core_policy_set, core_entities);
+    let total_policies = core_policy_set.policies().count();
+
+    let mut times_ms = Vec::with_capacity(trials);
+    for _ in 0..trials {
+        let entities_arc = Arc::new(core_entities.clone());
+        let start = Instant::now();
+        let _tree = cedar_policy_core::poltree::PolTree::from_policy_set_and_entities(
+            core_policy_set,
+            entities_arc,
+        );
+        times_ms.push(start.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    let mean_ms = times_ms.iter().sum::<f64>() / times_ms.len() as f64;
+    let min_ms = times_ms.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max_ms = times_ms.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+
+    BuildStats {
+        trials,
+        mean_ms,
+        min_ms,
+        max_ms,
+        residual_policies: residual_ids.len(),
+        total_policies,
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
+
+    if cli.csv_header {
+        println!("{CSV_HEADER}");
+        return;
+    }
 
     let data_dir = PathBuf::from(&cli.data_dir);
     let dataset = load_dataset(&data_dir).unwrap_or_else(|err| panic!("{err}"));
@@ -86,6 +174,8 @@ fn main() {
     if requests.is_empty() {
         panic!("benchmark request corpus is empty");
     }
+
+    let build_stats = measure_poltree_build(&policy_set, &entities, cli.build_trials.max(1));
 
     let stateless_authorizer = Arc::new(Authorizer::new());
     let cached_authorizer = Arc::new(
@@ -132,18 +222,23 @@ fn main() {
         },
     );
 
-    print_summary(&stateless_summary);
-    print_summary(&cached_summary);
+    if cli.csv {
+        print_csv_row(&dataset, &build_stats, &stateless_summary, &cached_summary);
+    } else {
+        print_build_stats(&build_stats);
+        print_summary(&stateless_summary);
+        print_summary(&cached_summary);
 
-    println!();
-    println!(
-        "latency speedup: {:.3}x",
-        stateless_summary.avg_ms / cached_summary.avg_ms
-    );
-    println!(
-        "throughput speedup: {:.3}x",
-        cached_summary.throughput_rps / stateless_summary.throughput_rps
-    );
+        println!();
+        println!(
+            "latency speedup: {:.3}x  (build time above is excluded from this)",
+            stateless_summary.avg_ms / cached_summary.avg_ms
+        );
+        println!(
+            "throughput speedup: {:.3}x  (build time above is excluded from this)",
+            cached_summary.throughput_rps / stateless_summary.throughput_rps
+        );
+    }
 }
 
 struct Dataset {
@@ -378,6 +473,66 @@ fn percentile(values: &[f64], percentile: f64) -> f64 {
     let rank = ((values.len() as f64) * percentile).ceil() as usize;
     let index = rank.saturating_sub(1).min(values.len() - 1);
     values[index]
+}
+
+fn print_build_stats(stats: &BuildStats) {
+    println!();
+    println!("=== poltree build (one-time cost; excluded from speedup below) ===");
+    println!("trials             : {}", stats.trials);
+    println!("mean ms            : {:.3}", stats.mean_ms);
+    println!("min ms             : {:.3}", stats.min_ms);
+    println!("max ms             : {:.3}", stats.max_ms);
+    println!(
+        "residual policies  : {} / {}{}",
+        stats.residual_policies,
+        stats.total_policies,
+        if stats.residual_policies > 0 {
+            "  <-- non-zero: query speedup below is diluted by real-evaluator fallback overhead, not pure PolTree lookup"
+        } else {
+            ""
+        }
+    );
+}
+
+fn print_csv_row(
+    dataset: &Dataset,
+    build: &BuildStats,
+    stateless: &BenchmarkSummary,
+    poltree: &BenchmarkSummary,
+) {
+    let policies = dataset.policies_json.as_array().map(Vec::len).unwrap_or(0);
+    let entities = dataset.entities_json.as_array().map(Vec::len).unwrap_or(0);
+    let requests = dataset.requests_json.len();
+
+    println!(
+        "{},{},{},{},{},{},{},{:.3},{:.3},{:.3},{},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3}",
+        policies,
+        requests,
+        entities,
+        stateless.threads,
+        stateless.iterations,
+        stateless.warmup_requests,
+        build.trials,
+        build.mean_ms,
+        build.min_ms,
+        build.max_ms,
+        build.residual_policies,
+        build.total_policies,
+        stateless.throughput_rps,
+        stateless.avg_ms,
+        stateless.p50_ms,
+        stateless.p95_ms,
+        stateless.p99_ms,
+        stateless.max_ms,
+        poltree.throughput_rps,
+        poltree.avg_ms,
+        poltree.p50_ms,
+        poltree.p95_ms,
+        poltree.p99_ms,
+        poltree.max_ms,
+        stateless.avg_ms / poltree.avg_ms,
+        poltree.throughput_rps / stateless.throughput_rps,
+    );
 }
 
 fn print_summary(summary: &BenchmarkSummary) {
