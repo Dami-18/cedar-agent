@@ -73,7 +73,19 @@ impl Lcg {
     /// Uniform integer in [lo, hi)
     fn range(&mut self, lo: usize, hi: usize) -> usize {
         if hi <= lo { return lo; }
-        lo + (self.next() as usize % (hi - lo))
+        // NOT `next() % span`: a linear congruential generator's LOW bits
+        // have a much shorter effective period than its high bits (the
+        // low k bits of an LCG with modulus 2^64 cycle with period at most
+        // 2^k), so `% span` for a power-of-two span reads directly off that
+        // short cycle -- e.g. `% 8` was observed to only ever produce 4 of
+        // its 8 possible residues here. Instead take the HIGH bits via a
+        // widening multiply (the standard unbiased bounded-range technique,
+        // as used by e.g. Lemire's method / PCG): multiply the full 64-bit
+        // output by the span and keep the top 64 bits of the 128-bit
+        // product, which draws on the LCG's high-quality high bits instead.
+        let span = (hi - lo) as u64;
+        let scaled = ((self.next() as u128 * span as u128) >> 64) as u64;
+        lo + scaled as usize
     }
 
     /// Uniform float in [0, 1)
@@ -96,12 +108,19 @@ impl Lcg {
     }
 }
 
-fn dept_name(i: usize) -> &'static str {
+fn dept_name(i: usize) -> String {
     const NAMES: &[&str] = &[
         "engineering", "finance", "legal", "hr",
         "sales", "ops", "research", "security",
     ];
-    if i < NAMES.len() { NAMES[i] } else { "dept_other" }
+    // Beyond the named set, synthesize a distinct name per index rather than
+    // collapsing everything onto one shared "dept_other" value -- otherwise
+    // `--departments N` for N > 8 would silently produce far fewer than N
+    // distinct attribute values, understating attribute-value cardinality.
+    match NAMES.get(i) {
+        Some(name) => name.to_string(),
+        None => format!("dept_{i}"),
+    }
 }
 
 fn team_name(dept: usize, team: usize) -> String {
