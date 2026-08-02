@@ -28,7 +28,7 @@ struct Cli {
     #[arg(long, default_value_t = 20_000)]
     iterations: usize,
 
-    #[arg(long, default_value_t = 2_000)]
+    #[arg(long, default_value_t = 2)]
     warmup_requests: usize,
 }
 
