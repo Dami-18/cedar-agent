@@ -212,15 +212,31 @@ fn build_entities(cfg: &BenchmarkConfig, rng: &mut Lcg) -> (Vec<UserMeta>, Vec<D
     (users, docs, Value::Array(arr))
 }
 //
-// 8 templates cycling across N policies so a mix is always present:
-//   0  owner-based access (all actions)
-//   1  same-department read
-//   2  same-department update (public docs only)
-//   3  team-level read
-//   4  clearance-gated read
-//   5  manager admin
-//   6  internal-clearance read
-//   7  public global read
+// 7 templates cycling across N policies so a mix is always present.
+//
+// All of these are restricted to flat `entity.attr == <literal>` equality
+// constraints (ANDed together) plus `is`/`==` scope constraints and `permit`
+// effect only -- the subset PolTree's N-ary indexing can fully represent (see
+// cedar-policy-core::poltree::policy_is_fully_indexed). There is intentionally
+// no cross-attribute comparison (e.g. `resource.owner == principal.x`), no
+// `in`/hierarchy constraint, and no `forbid` policy here: none of those are
+// representable in PolTree's node-splitting model (each split partitions an
+// attribute's finite literal value domain, which requires the compared value
+// to be a policy-time constant), so generating them would force every request
+// through PolTree's real-Cedar-evaluator fallback and understate PolTree's own
+// indexed-lookup performance. See /home/damiya/Downloads/Poltree.pdf sec. 2 --
+// the published rule model itself is scoped to attribute-vs-literal
+// conjunctions, which is what this generator reproduces.
+//
+//   0  same-department read
+//   1  same-department update (public docs only)
+//   2  team-level read
+//   3  clearance-gated read
+//   4  manager admin
+//   5  internal-clearance read
+//   6  public global read
+
+const N_POLICY_TEMPLATES: usize = 7;
 
 #[derive(Debug, Serialize)]
 struct PolicyEntry{
@@ -234,17 +250,9 @@ fn build_policies(cfg: &BenchmarkConfig) -> Vec<PolicyEntry> {
     for i in 0..cfg.policies {
         let dept = i % cfg.departments;
 
-        let policy = match i % 8 {
-            // Owner access
-            0 => PolicyEntry {
-                id: format!("owner-access-{i}"),
-                content: String::from(
-                    r#"permit(principal, action, resource is Document) when { resource.owner == principal.employee_id };"#,
-                ),
-            },
-
+        let policy = match i % N_POLICY_TEMPLATES {
             // Department read
-            1 => PolicyEntry {
+            0 => PolicyEntry {
                 id: format!("dept-read-{i}"),
                 content: format!(
                     r#"permit(principal is User, action == Action::"read", resource is Document) when {{ principal.department == "{}" && resource.department == "{}" }};"#,
@@ -254,7 +262,7 @@ fn build_policies(cfg: &BenchmarkConfig) -> Vec<PolicyEntry> {
             },
 
             // Department update
-            2 => PolicyEntry {
+            1 => PolicyEntry {
                 id: format!("dept-update-{i}"),
                 content: format!(
                     r#"permit(principal is User, action == Action::"update", resource is Document) when {{ principal.department == "{}" && resource.department == "{}" && resource.clearance == "public" }};"#,
@@ -264,7 +272,7 @@ fn build_policies(cfg: &BenchmarkConfig) -> Vec<PolicyEntry> {
             },
 
             // Team read
-            3 => PolicyEntry {
+            2 => PolicyEntry {
                 id: format!("team-read-{i}"),
                 content: format!(
                     r#"permit(principal is User, action == Action::"read", resource is Document) when {{ principal.team == "{}" && resource.department == "{}" }};"#,
@@ -274,7 +282,7 @@ fn build_policies(cfg: &BenchmarkConfig) -> Vec<PolicyEntry> {
             },
 
             // Clearance read
-            4 => {
+            3 => {
                 let cl = clearance_str(i % 4);
                 PolicyEntry {
                     id: format!("clearance-read-{i}"),
@@ -285,7 +293,7 @@ fn build_policies(cfg: &BenchmarkConfig) -> Vec<PolicyEntry> {
             }
 
             // Manager admin
-            5 => PolicyEntry {
+            4 => PolicyEntry {
                 id: format!("manager-admin-{i}"),
                 content: format!(
                     r#"permit(principal is User, action == Action::"admin", resource is Document) when {{ principal.is_manager == true && principal.department == "{}" && resource.department == "{}" }};"#,
@@ -295,7 +303,7 @@ fn build_policies(cfg: &BenchmarkConfig) -> Vec<PolicyEntry> {
             },
 
             // Internal read
-            6 => PolicyEntry {
+            5 => PolicyEntry {
                 id: format!("internal-read-{i}"),
                 content: format!(
                     r#"permit(principal is User, action == Action::"read", resource is Document) when {{ principal.clearance == "internal" && resource.clearance == "internal" && resource.department == "{}" }};"#,
@@ -304,7 +312,7 @@ fn build_policies(cfg: &BenchmarkConfig) -> Vec<PolicyEntry> {
             },
 
             // Public read
-            7 => PolicyEntry {
+            6 => PolicyEntry {
                 id: format!("public-read-{i}"),
                 content: String::from(
                     r#"permit(principal, action == Action::"read", resource is Document) when { resource.clearance == "public" };"#,
@@ -366,14 +374,15 @@ fn build_requests(
         let doc    = &docs[d_idx];
         let action = action_for(rng.frac(), cfg);
 
-        // Heuristic Allow/Deny (approximates what the Cedar policies actually decide)
-        let is_owner    = doc.owner_idx == u_idx;
+        // Heuristic Allow/Deny (approximates what the Cedar policies actually decide).
+        // No `is_owner` term here: the owner-based policy template was removed
+        // (see `build_policies`) since `resource.owner == principal.employee_id`
+        // is a cross-attribute comparison PolTree cannot index.
         let same_dept   = doc.dept_idx == user.dept_idx;
         let cl_ok       = user.clearance_level >= doc.clearance_level;
         let public_doc  = doc.clearance_level == 0;
 
-        let allow = is_owner
-            || (same_dept && action == "read"   && cl_ok)
+        let allow = (same_dept && action == "read"   && cl_ok)
             || (same_dept && action == "update"  && public_doc)
             || (user.is_manager && action == "admin" && same_dept)
             || (action == "read" && public_doc);
